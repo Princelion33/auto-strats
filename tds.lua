@@ -842,18 +842,30 @@ function TDS:Addons()
         }
     end
 
-    -- 2. DÉFINITION DE EQUIP (SYNCHRONE - BLOQUANT)
-    -- On enlève le task.spawn ici pour que ce soit INSTANTANÉ
+    -- 2. DÉFINITION DE EQUIP (Robustesse Argument corrigée)
     TDS.Equip = function(...)
-        local TowersToEquip = {...}
-        if type(TowersToEquip[1]) == "table" then
-            TowersToEquip = TowersToEquip[1]
+        local args = {...}
+        local TowersToEquip = {}
+
+        -- TRIAGE DES ARGUMENTS : On ignore le 'self' (la table TDS)
+        for _, v in ipairs(args) do
+            if type(v) == "string" and v ~= "" then
+                -- C'est un nom de tour (ex: "Mortar")
+                table.insert(TowersToEquip, v)
+            elseif type(v) == "table" and v ~= TDS then
+                -- C'est une liste de tours { "Scout", "Sniper" }
+                for _, subV in ipairs(v) do
+                    if type(subV) == "string" then
+                        table.insert(TowersToEquip, subV)
+                    end
+                end
+            end
         end
 
         local remote = game:GetService("ReplicatedStorage"):WaitForChild("RemoteFunction")
         local LocalPlayer = game:GetService("Players").LocalPlayer
 
-        -- Fonction pour lire l'inventaire actuel via StateReplicators
+        -- Fonction interne pour lire l'inventaire actuel
         local function GetCurrentLoadout()
             local equipped = {}
             local replicators = game:GetService("ReplicatedStorage"):WaitForChild("StateReplicators")
@@ -875,43 +887,37 @@ function TDS:Addons()
         end
 
         for _, towerName in ipairs(TowersToEquip) do
-            if towerName and type(towerName) == "string" and towerName ~= "" then
-                -- A. Vérification de l'inventaire actuel
-                local currentLoadout = GetCurrentLoadout()
-                local alreadyHasIt = false
-                for _, t in ipairs(currentLoadout) do
-                    if t == towerName then alreadyHasIt = true break end
-                end
-
-                -- B. LOGIQUE INTELLIGENTE : Si plein (5 tours) et qu'on n'a pas la tour, on vire la 1ère
-                if not alreadyHasIt and #currentLoadout >= 5 then
-                    local towerToRemove = currentLoadout[1]
-                    if towerToRemove then
-                        -- On déséquipe la première tour pour faire de la place
-                        local argsUnequip = {"Inventory", "Unequip", "tower", towerToRemove}
-                        pcall(function() remote:InvokeServer(unpack(argsUnequip)) end)
-                        warn("♻️ [ADS] Slot libéré : " .. tostring(towerToRemove) .. " retiré.")
-                        task.wait(0.3) -- Petite pause obligatoire pour que le serveur valide
-                    end
-                end
-
-                -- C. On équipe la nouvelle tour
-                -- D'abord un Unequip de sécurité sur la tour cible (refresh slot)
-                pcall(function() remote:InvokeServer("Inventory", "Unequip", "tower", towerName) end)
-                task.wait(0.1)
-
-                -- Ensuite l'Equip réel
-                pcall(function() remote:InvokeServer("Inventory", "Equip", "tower", towerName) end)
-                
-                print("✅ [ADS] COMMANDE ENVOYÉE : Equip " .. towerName)
-                task.wait(0.3) -- Pause pour éviter le rate limit
+            -- A. Vérification de l'inventaire actuel
+            local currentLoadout = GetCurrentLoadout()
+            local alreadyHasIt = false
+            for _, t in ipairs(currentLoadout) do
+                if t == towerName then alreadyHasIt = true break end
             end
+
+            -- B. LOGIQUE INTELLIGENTE : Si plein (5 tours) et qu'on n'a pas la tour, on vire la 1ère
+            if not alreadyHasIt and #currentLoadout >= 5 then
+                local towerToRemove = currentLoadout[1]
+                if towerToRemove then
+                    local argsUnequip = {"Inventory", "Unequip", "tower", towerToRemove}
+                    pcall(function() remote:InvokeServer(unpack(argsUnequip)) end)
+                    warn("♻️ [ADS] Slot libéré : " .. tostring(towerToRemove) .. " retiré.")
+                    task.wait(0.3)
+                end
+            end
+
+            -- C. On équipe la nouvelle tour
+            pcall(function() remote:InvokeServer("Inventory", "Unequip", "tower", towerName) end)
+            task.wait(0.1)
+            pcall(function() remote:InvokeServer("Inventory", "Equip", "tower", towerName) end)
+            
+            print("✅ [ADS] COMMANDE ENVOYÉE : Equip " .. towerName)
+            task.wait(0.3)
         end
     end
     
     warn("[ADS] 2. Fonction TDS.Equip a été REMPLACÉE (Prêt pour la stratégie).")
 
-    -- 3. Notification Visuelle (peut être async, pas grave)
+    -- 3. Notification Visuelle
     task.spawn(function()
         pcall(function()
             game:GetService("StarterGui"):SetCore("SendNotification", {
@@ -922,7 +928,7 @@ function TDS:Addons()
         end)
     end)
 
-    -- 4. Gatling Gun (peut être async)
+    -- 4. Gatling Gun
     TDS.AutoGatling = function()
         if not hookmetamethod and not getgenv().hookmetamethod then return end
         task.spawn(function()
