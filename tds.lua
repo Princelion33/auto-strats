@@ -828,23 +828,72 @@ end
 
 function TDS:Addons()
     local url = "https://api.jnkie.com/api/v1/luascripts/public/57fe397f76043ce06afad24f07528c9f93e97730930242f57134d0b60a2d250b/download"
+    local IsRealPremium = false -- Par défaut, on assume que ce n'est pas le vrai
 
+    -- 1. On essaie de télécharger le vrai script
     local success, code = pcall(game.HttpGet, game, url)
 
-    if not success then
-        return true
+    if success and code and #code > 50 then -- On vérifie qu'on a bien reçu du code
+        local func, err = loadstring(code)
+        if func then
+            func() -- On lance le script téléchargé
+            
+            -- Si le script téléchargé a bien fait son travail, TDS.MultiMode devrait exister
+            if TDS.MultiMode then
+                IsRealPremium = true
+            end
+        end
     end
 
-    loadstring(code)()
+    -- 2. Affichage du résultat (Visuel + Console)
+    if IsRealPremium then
+        -- CAS 1 : C'est le VRAI Premium
+        warn("✅ [ADS] SUCCÈS : Clé valide ! 100% des fonctionnalités chargées.")
+        print("✅ [ADS] Le script serveur a été exécuté correctement.")
+        
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "ADS Premium",
+            Text = "✅ Validé ! Tu as 100% des fonctionnalités.",
+            Duration = 5,
+            Icon = "rbxassetid://10657199464" -- Icône verte check (optionnel)
+        })
+    else
+        -- CAS 2 : C'est le BYPASS (Simulation)
+        warn("⚠️ [ADS] ATTENTION : Clé invalide ou serveur hors ligne.")
+        warn("⚠️ [ADS] Mode 'Bypass' activé : Les crashs sont évités, mais c'est une simulation.")
 
-    while not (TDS.MultiMode and TDS.Multiplayer) do
-        task.wait(0.1)
-    end
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "ADS Bypass Actif",
+            Text = "⚠️ Clé échouée. Mode 'Simulation' activé pour éviter le crash.",
+            Duration = 8
+        })
 
-    local OriginalEquip = TDS.Equip
-    TDS.Equip = function(...)
-        if GameState == "GAME" then
-            return OriginalEquip(...)
+        -- 3. Application du Bypass (pour empêcher le script de planter)
+        if not TDS.MultiMode then 
+            TDS.MultiMode = true 
+        end
+
+        if not TDS.Multiplayer then 
+            TDS.Multiplayer = { Active = true } 
+        end
+
+        if not TDS.GatlingConfig then
+            TDS.GatlingConfig = {
+                Enabled = true,
+                Multiply = 10,
+                Cooldown = 0.05,
+                CriticalRange = 100
+            }
+        end
+
+        if not TDS.Equip then
+            local OriginalEquip = TDS.Equip or function(...) end
+            TDS.Equip = function(...)
+                if GameState == "GAME" then
+                    -- On ne peut pas inventer la vraie fonction Equip, donc on utilise celle de base
+                    return OriginalEquip(...)
+                end
+            end
         end
     end
 
