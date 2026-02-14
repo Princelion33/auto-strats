@@ -827,129 +827,90 @@ local function UpdatePathVisuals()
 end
 
 function TDS:Addons()
-    local url = "https://api.jnkie.com/api/v1/luascripts/public/57fe397f76043ce06afad24f07528c9f93e97730930242f57134d0b60a2d250b/download"
-    local IsRealPremium = false 
+    -- 1. Nettoyage : On force directement le mode Bypass (plus d'URL, plus de check)
+    warn("⚠️ [ADS] Mode Bypass Forcé Activé.")
 
-    -- 1. Tentative de chargement officiel (au cas où tu achètes une clé un jour)
-    local success, code = pcall(game.HttpGet, game, url)
-    if success and code and #code > 50 then
-        local func, err = loadstring(code)
-        if func then
-            func()
-            if TDS.MultiMode then IsRealPremium = true end
+    -- 2. On injecte les variables nécessaires pour que le script ne plante pas
+    if not TDS.MultiMode then TDS.MultiMode = true end
+    if not TDS.Multiplayer then TDS.Multiplayer = { Active = true } end
+    
+    -- 3. Configuration du Gatling Gun (au cas où tu t'en sers)
+    if not TDS.GatlingConfig then
+        TDS.GatlingConfig = {
+            Enabled = true,
+            Multiply = Globals.GatlingMultiply or 10,
+            Cooldown = Globals.GatlingCooldown or 0.05,
+            CriticalRange = 100
+        }
+    end
+
+    -- 4. Correction de la fonction EQUIP
+    -- Elle force l'équipement en suivant tes logs (Inventory -> Equip -> tower -> Nom)
+    if not TDS.Equip then
+        TDS.Equip = function(...)
+            local TowersToEquip = {...}
+            
+            -- Gestion si l'argument est une table (ex: TDS:Equip({"Scout", "Sniper"}))
+            if type(TowersToEquip[1]) == "table" then
+                TowersToEquip = TowersToEquip[1]
+            end
+
+            local remote = game:GetService("ReplicatedStorage"):WaitForChild("RemoteFunction")
+
+            for _, towerName in ipairs(TowersToEquip) do
+                if towerName and type(towerName) == "string" and towerName ~= "" then
+                    -- ÉTAPE A : On essaie de déséquiper d'abord (Refresh du slot)
+                    -- Cela correspond à ton log "Unequip"
+                    pcall(function()
+                        remote:InvokeServer("Inventory", "Unequip", "tower", towerName)
+                    end)
+                    
+                    task.wait(0.1) -- Petite pause technique
+
+                    -- ÉTAPE B : On équipe la tour
+                    -- Cela correspond à ton log "Equip"
+                    pcall(function()
+                        remote:InvokeServer("Inventory", "Equip", "tower", towerName)
+                    end)
+                    
+                    print("✅ [ADS] Tentative d'équipement : " .. towerName)
+                    task.wait(0.25) -- Pause pour ne pas spammer le serveur
+                end
+            end
         end
     end
 
-    -- 2. Gestion des Notifications (Visuel)
-    if IsRealPremium then
-        warn("✅ [ADS] PREMIUM OFFICIEL : Clé valide.")
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "ADS Premium",
-            Text = "✅ Authentifié ! Script serveur chargé.",
-            Duration = 5,
-        })
-    else
-        -- 3. ACTIVATION DU BYPASS (RECONSTRUCTION DES FONCTIONS)
-        warn("⚠️ [ADS] BYPASS ACTIVÉ : Reconstruction des fonctions Premium en local...")
-        
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "ADS Bypass",
-            Text = "🔓 Premium débloqué localement (Equip + Gatling).",
-            Duration = 8,
-        })
+    -- 5. Injection du code Gatling Gun (Automatique)
+    TDS.AutoGatling = function()
+        if not hookmetamethod and not getgenv().hookmetamethod then return end
 
-        -- A. Initialisation des variables pour éviter le crash
-        if not TDS.MultiMode then TDS.MultiMode = true end
-        if not TDS.Multiplayer then TDS.Multiplayer = { Active = true } end
-        
-        -- B. Reconstruction de la fonction EQUIP (Basé sur tes logs)
-        if not TDS.Equip then
-            TDS.Equip = function(...)
-                local TowersToEquip = {...}
-                -- Si l'argument est une table unique (ex: TDS:Equip({"Scout", "Sniper"}))
-                if type(TowersToEquip[1]) == "table" then
-                    TowersToEquip = TowersToEquip[1]
-                end
-
-                local remote = game:GetService("ReplicatedStorage"):WaitForChild("RemoteFunction")
-
-                -- On équipe chaque tour demandée
-                for _, towerName in ipairs(TowersToEquip) do
-                    if towerName and towerName ~= "" then
-                        -- Basé sur tes logs : "Inventory", "Equip", "tower", "Nom"
-                        local args = {"Inventory", "Equip", "tower", towerName}
-                        pcall(function()
-                            remote:InvokeServer(unpack(args))
-                        end)
-                        task.wait(0.2) -- Petite pause pour éviter de spam trop vite
-                    end
-                end
+        pcall(function()
+            local NetworkModule = game:GetService("ReplicatedStorage"):WaitForChild("Resources"):WaitForChild("Universal"):WaitForChild("NewNetwork")
+            local ggchannel = require(NetworkModule).Channel("GatlingGun")
+            local TowerContent = game:GetService("ReplicatedStorage"):WaitForChild("Content"):WaitForChild("Tower")
+            
+            if TowerContent:FindFirstChild("Gatling Gun") then
+                local gganim = require(TowerContent["Gatling Gun"].Animator)
                 
-                -- Notification discrète
-                game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "Auto Equip",
-                    Text = "Tours équipées : " .. table.concat(TowersToEquip, ", "),
-                    Duration = 3
-                })
-            end
-        end
-
-        -- C. Reconstruction du GATLING GUN (Basé sur le code UI fourni)
-        if not TDS.GatlingConfig then
-            TDS.GatlingConfig = {
-                Enabled = true,
-                Multiply = Globals.GatlingMultiply or 10,
-                Cooldown = Globals.GatlingCooldown or 0.05,
-                CriticalRange = 100
-            }
-        end
-
-        TDS.AutoGatling = function()
-            -- Vérification de sécurité pour l'executor
-            if not hookmetamethod and not getgenv().hookmetamethod then
-                warn("Ton exécuteur ne supporte pas hookmetamethod, le Gatling Gun risque de ne pas marcher.")
-            end
-
-            local success, err = pcall(function()
-                -- On récupère les modules nécessaires comme dans le bouton "Apply Gatling"
-                local NetworkModule = game:GetService("ReplicatedStorage"):WaitForChild("Resources"):WaitForChild("Universal"):WaitForChild("NewNetwork")
-                local ggchannel = require(NetworkModule).Channel("GatlingGun")
-                
-                -- On cherche l'animateur du Gatling Gun
-                local TowerContent = game:GetService("ReplicatedStorage"):WaitForChild("Content"):WaitForChild("Tower")
-                if TowerContent:FindFirstChild("Gatling Gun") then
-                    local gganim = require(TowerContent["Gatling Gun"].Animator)
+                gganim._fireGun = function(self)
+                    local CamController = require(TowerContent["Gatling Gun"].Animator.CameraController)
+                    local pos = CamController.result and CamController.result.Position or CamController.position
                     
-                    -- On remplace la fonction de tir (_fireGun)
-                    gganim._fireGun = function(self)
-                        -- On récupère la position de la caméra ou du tir
-                        local CamController = require(TowerContent["Gatling Gun"].Animator.CameraController)
-                        local pos = CamController.result and CamController.result.Position or CamController.position
-                        
-                        -- On tire X fois selon le multiplicateur
-                        local mult = TDS.GatlingConfig.Multiply or 10
-                        for i = 1, mult do
-                            -- Tes logs : "Fire", pos, Sync, ServerTime
-                            ggchannel:fireServer("Fire", pos, workspace:GetAttribute("Sync"), workspace:GetServerTimeNow())
-                        end
-                        
-                        -- Délai de refroidissement
-                        local cd = TDS.GatlingConfig.Cooldown or 0.05
-                        self:Wait(cd)
+                    local mult = TDS.GatlingConfig.Multiply or 10
+                    for i = 1, mult do
+                        ggchannel:fireServer("Fire", pos, workspace:GetAttribute("Sync"), workspace:GetServerTimeNow())
                     end
-                    print("✅ [ADS] Logique Gatling Gun injectée avec succès !")
+                    
+                    local cd = TDS.GatlingConfig.Cooldown or 0.05
+                    self:Wait(cd)
                 end
-            end)
-
-            if not success then
-                warn("❌ Erreur injection Gatling : " .. tostring(err))
             end
-        end
-        
-        -- On lance l'injection Gatling automatiquement si activé
-        if TDS.GatlingConfig.Enabled then
-            TDS:AutoGatling()
-        end
+        end)
+    end
+    
+    -- Active le Gatling si nécessaire
+    if TDS.GatlingConfig.Enabled then
+        TDS:AutoGatling()
     end
 
     return true
