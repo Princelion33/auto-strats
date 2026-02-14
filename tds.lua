@@ -827,12 +827,14 @@ local function UpdatePathVisuals()
 end
 
 function TDS:Addons()
-    -- 1. On force le mode Bypass (plus besoin de clé)
-    warn("⚠️ [ADS] Mode Bypass Activé : Gestion automatique de l'inventaire.")
+    -- Message de confirmation dans la console (Appuie sur F9 pour voir)
+    warn("[ADS] DÉMARRAGE: TDS:Addons() a été appelé !")
 
+    -- 1. Configuration des variables vitales (Anti-Crash)
     if not TDS.MultiMode then TDS.MultiMode = true end
     if not TDS.Multiplayer then TDS.Multiplayer = { Active = true } end
     
+    -- Config Gatling
     if not TDS.GatlingConfig then
         TDS.GatlingConfig = {
             Enabled = true,
@@ -842,104 +844,136 @@ function TDS:Addons()
         }
     end
 
-    -- 2. La fonction EQUIP "Intelligente"
-    if not TDS.Equip then
-        TDS.Equip = function(...)
-            local TowersToEquip = {...}
-            if type(TowersToEquip[1]) == "table" then
-                TowersToEquip = TowersToEquip[1]
+    -- 2. Système de Notification "Force" (Répète jusqu'à ce que ça marche)
+    task.spawn(function()
+        local StarterGui = game:GetService("StarterGui")
+        local notifSent = false
+        local attempts = 0
+        
+        while not notifSent and attempts < 10 do
+            local success, err = pcall(function()
+                StarterGui:SetCore("SendNotification", {
+                    Title = "ADS Bypass Actif",
+                    Text = "✅ Premium débloqué (Equip Auto + Gatling)",
+                    Duration = 8,
+                    Icon = "rbxassetid://10657199464"
+                })
+            end)
+            
+            if success then
+                notifSent = true
+                warn("[ADS] Notification envoyée avec succès.")
+            else
+                attempts = attempts + 1
+                task.wait(1) -- On attend un peu que le jeu charge
             end
+        end
+    end)
 
-            local remote = game:GetService("ReplicatedStorage"):WaitForChild("RemoteFunction")
-            local HttpService = game:GetService("HttpService")
-            local LocalPlayer = game:GetService("Players").LocalPlayer
+    -- 3. Fonction EQUIP "Intelligente" (Gestion Inventaire Plein)
+    -- On force la redéfinition même si elle existe déjà pour être sûr d'avoir la bonne version
+    TDS.Equip = function(...)
+        local TowersToEquip = {...}
+        if type(TowersToEquip[1]) == "table" then
+            TowersToEquip = TowersToEquip[1]
+        end
 
-            -- Helper pour voir ce qu'on a déjà équipé
-            local function GetCurrentLoadout()
-                local equipped = {}
-                local replicators = game:GetService("ReplicatedStorage"):WaitForChild("StateReplicators")
-                for _, folder in ipairs(replicators:GetChildren()) do
-                    if folder.Name == "PlayerReplicator" and folder:GetAttribute("UserId") == LocalPlayer.UserId then
-                        local eqAttr = folder:GetAttribute("EquippedTowers")
-                        if type(eqAttr) == "string" then
-                            local clean = eqAttr:match("%[.*%]")
-                            local ok, data = pcall(function() return HttpService:JSONDecode(clean) end)
-                            if ok and type(data) == "table" then
-                                for _, t in ipairs(data) do
-                                    if t and t ~= "None" then table.insert(equipped, t) end
-                                end
+        local remote = game:GetService("ReplicatedStorage"):WaitForChild("RemoteFunction")
+        local HttpService = game:GetService("HttpService")
+        local LocalPlayer = game:GetService("Players").LocalPlayer
+
+        -- Fonction pour lire l'inventaire actuel
+        local function GetCurrentLoadout()
+            local equipped = {}
+            local replicators = game:GetService("ReplicatedStorage"):WaitForChild("StateReplicators")
+            for _, folder in ipairs(replicators:GetChildren()) do
+                if folder.Name == "PlayerReplicator" and folder:GetAttribute("UserId") == LocalPlayer.UserId then
+                    local eqAttr = folder:GetAttribute("EquippedTowers")
+                    if type(eqAttr) == "string" then
+                        local clean = eqAttr:match("%[.*%]")
+                        local ok, data = pcall(function() return HttpService:JSONDecode(clean) end)
+                        if ok and type(data) == "table" then
+                            for _, t in ipairs(data) do
+                                if t and t ~= "None" then table.insert(equipped, t) end
                             end
                         end
                     end
                 end
-                return equipped
             end
+            return equipped
+        end
 
-            for _, towerName in ipairs(TowersToEquip) do
-                if towerName and type(towerName) == "string" and towerName ~= "" then
-                    local currentLoadout = GetCurrentLoadout()
-                    
-                    -- Vérif si on l'a déjà
-                    local alreadyHasIt = false
-                    for _, t in ipairs(currentLoadout) do
-                        if t == towerName then alreadyHasIt = true break end
-                    end
-
-                    -- Si on ne l'a pas et qu'on est plein (5 tours)
-                    if not alreadyHasIt and #currentLoadout >= 5 then
-                        -- On vire la 1ère tour de la liste pour faire de la place
-                        local towerToRemove = currentLoadout[1]
-                        if towerToRemove then
-                            pcall(function()
-                                remote:InvokeServer("Inventory", "Unequip", "tower", towerToRemove)
-                            end)
-                            warn("♻️ [ADS] Slot plein : " .. tostring(towerToRemove) .. " retiré pour " .. towerName)
-                            task.wait(0.3)
-                        end
-                    end
-
-                    -- Procédure standard : Unequip (pour être sûr) puis Equip
-                    pcall(function()
-                        remote:InvokeServer("Inventory", "Unequip", "tower", towerName)
-                    end)
-                    task.wait(0.1)
-
-                    pcall(function()
-                        remote:InvokeServer("Inventory", "Equip", "tower", towerName)
-                    end)
-                    
-                    print("✅ [ADS] Equipé : " .. towerName)
-                    task.wait(0.3)
+        for _, towerName in ipairs(TowersToEquip) do
+            if towerName and type(towerName) == "string" and towerName ~= "" then
+                -- A. Vérification de place
+                local currentLoadout = GetCurrentLoadout()
+                local alreadyHasIt = false
+                for _, t in ipairs(currentLoadout) do
+                    if t == towerName then alreadyHasIt = true break end
                 end
+
+                -- B. Si pas de place (5 tours), on retire la première
+                if not alreadyHasIt and #currentLoadout >= 5 then
+                    local towerToRemove = currentLoadout[1]
+                    if towerToRemove then
+                        pcall(function()
+                            remote:InvokeServer("Inventory", "Unequip", "tower", towerToRemove)
+                        end)
+                        warn("♻️ [ADS] Place libérée : " .. tostring(towerToRemove) .. " retiré.")
+                        task.wait(0.2)
+                    end
+                end
+
+                -- C. On déséquipe (au cas où) puis on équipe la cible
+                pcall(function()
+                    remote:InvokeServer("Inventory", "Unequip", "tower", towerName)
+                end)
+                task.wait(0.1)
+
+                pcall(function()
+                    remote:InvokeServer("Inventory", "Equip", "tower", towerName)
+                end)
+                
+                print("✅ [ADS] Tour équipée : " .. towerName)
+                task.wait(0.3)
             end
         end
     end
+    warn("[ADS] Fonction TDS:Equip chargée.")
 
-    -- 3. Injection Gatling Gun
+    -- 4. Injection Gatling Gun (Séparée pour éviter les crashs)
     TDS.AutoGatling = function()
-        if not hookmetamethod and not getgenv().hookmetamethod then return end
+        if not hookmetamethod and not getgenv().hookmetamethod then 
+            warn("⚠️ [ADS] Ton exécuteur ne supporte pas 'hookmetamethod' (Gatling désactivé).")
+            return 
+        end
 
-        pcall(function()
-            local NetworkModule = game:GetService("ReplicatedStorage"):WaitForChild("Resources"):WaitForChild("Universal"):WaitForChild("NewNetwork")
-            local ggchannel = require(NetworkModule).Channel("GatlingGun")
-            local TowerContent = game:GetService("ReplicatedStorage"):WaitForChild("Content"):WaitForChild("Tower")
-            
-            if TowerContent:FindFirstChild("Gatling Gun") then
-                local gganim = require(TowerContent["Gatling Gun"].Animator)
+        task.spawn(function()
+            local success, err = pcall(function()
+                local NetworkModule = game:GetService("ReplicatedStorage"):WaitForChild("Resources"):WaitForChild("Universal"):WaitForChild("NewNetwork")
+                local ggchannel = require(NetworkModule).Channel("GatlingGun")
+                local TowerContent = game:GetService("ReplicatedStorage"):WaitForChild("Content"):WaitForChild("Tower")
                 
-                gganim._fireGun = function(self)
-                    local CamController = require(TowerContent["Gatling Gun"].Animator.CameraController)
-                    local pos = CamController.result and CamController.result.Position or CamController.position
+                if TowerContent:FindFirstChild("Gatling Gun") then
+                    local gganim = require(TowerContent["Gatling Gun"].Animator)
                     
-                    local mult = TDS.GatlingConfig.Multiply or 10
-                    for i = 1, mult do
-                        ggchannel:fireServer("Fire", pos, workspace:GetAttribute("Sync"), workspace:GetServerTimeNow())
+                    gganim._fireGun = function(self)
+                        local CamController = require(TowerContent["Gatling Gun"].Animator.CameraController)
+                        local pos = CamController.result and CamController.result.Position or CamController.position
+                        
+                        local mult = TDS.GatlingConfig.Multiply or 10
+                        for i = 1, mult do
+                            ggchannel:fireServer("Fire", pos, workspace:GetAttribute("Sync"), workspace:GetServerTimeNow())
+                        end
+                        
+                        local cd = TDS.GatlingConfig.Cooldown or 0.05
+                        self:Wait(cd)
                     end
-                    
-                    local cd = TDS.GatlingConfig.Cooldown or 0.05
-                    self:Wait(cd)
+                    warn("[ADS] Gatling Gun activé !")
                 end
-            end
+            end)
+            
+            if not success then warn("❌ Erreur Gatling: " .. tostring(err)) end
         end)
     end
     
