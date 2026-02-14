@@ -827,9 +827,9 @@ local function UpdatePathVisuals()
 end
 
 function TDS:Addons()
-    warn("[ADS] DÉMARRAGE: TDS:Addons() appelé. Forçage du Premium...")
+    warn("[ADS] 1. DÉMARRAGE DU BYPASS...")
 
-    -- 1. Anti-Crash Variables
+    -- 1. Variables Vitales (Immédiat)
     if not TDS.MultiMode then TDS.MultiMode = true end
     if not TDS.Multiplayer then TDS.Multiplayer = { Active = true } end
     
@@ -842,19 +842,8 @@ function TDS:Addons()
         }
     end
 
-    -- 2. Notification Visuelle
-    task.spawn(function()
-        pcall(function()
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "ADS Bypass",
-                Text = "✅ Fonction Equip forcée !",
-                Duration = 5,
-            })
-        end)
-    end)
-
-    -- 3. FORÇAGE DE LA FONCTION EQUIP (J'ai enlevé le "if not TDS.Equip")
-    -- On écrase l'ancienne fonction vide par celle-ci qui fonctionne.
+    -- 2. DÉFINITION DE EQUIP (SYNCHRONE - BLOQUANT)
+    -- On enlève le task.spawn ici pour que ce soit INSTANTANÉ
     TDS.Equip = function(...)
         local TowersToEquip = {...}
         if type(TowersToEquip[1]) == "table" then
@@ -864,7 +853,7 @@ function TDS:Addons()
         local remote = game:GetService("ReplicatedStorage"):WaitForChild("RemoteFunction")
         local LocalPlayer = game:GetService("Players").LocalPlayer
 
-        -- Fonction interne pour lire l'inventaire
+        -- Fonction pour lire l'inventaire actuel via StateReplicators
         local function GetCurrentLoadout()
             local equipped = {}
             local replicators = game:GetService("ReplicatedStorage"):WaitForChild("StateReplicators")
@@ -887,43 +876,53 @@ function TDS:Addons()
 
         for _, towerName in ipairs(TowersToEquip) do
             if towerName and type(towerName) == "string" and towerName ~= "" then
-                -- A. On vérifie si on a de la place
+                -- A. Vérification de l'inventaire actuel
                 local currentLoadout = GetCurrentLoadout()
                 local alreadyHasIt = false
                 for _, t in ipairs(currentLoadout) do
                     if t == towerName then alreadyHasIt = true break end
                 end
 
-                -- B. LOGIQUE "LOADOUT BYPASS" : Si plein (5 tours), on retire la première
+                -- B. LOGIQUE INTELLIGENTE : Si plein (5 tours) et qu'on n'a pas la tour, on vire la 1ère
                 if not alreadyHasIt and #currentLoadout >= 5 then
                     local towerToRemove = currentLoadout[1]
                     if towerToRemove then
-                        pcall(function()
-                            remote:InvokeServer("Inventory", "Unequip", "tower", towerToRemove)
-                        end)
-                        warn("♻️ [ADS] Place libérée : " .. tostring(towerToRemove) .. " retiré pour " .. towerName)
-                        task.wait(0.25)
+                        -- On déséquipe la première tour pour faire de la place
+                        local argsUnequip = {"Inventory", "Unequip", "tower", towerToRemove}
+                        pcall(function() remote:InvokeServer(unpack(argsUnequip)) end)
+                        warn("♻️ [ADS] Slot libéré : " .. tostring(towerToRemove) .. " retiré.")
+                        task.wait(0.3) -- Petite pause obligatoire pour que le serveur valide
                     end
                 end
 
-                -- C. On force le déséquipement (refresh) puis l'équipement
-                pcall(function()
-                    remote:InvokeServer("Inventory", "Unequip", "tower", towerName)
-                end)
+                -- C. On équipe la nouvelle tour
+                -- D'abord un Unequip de sécurité sur la tour cible (refresh slot)
+                pcall(function() remote:InvokeServer("Inventory", "Unequip", "tower", towerName) end)
                 task.wait(0.1)
 
-                pcall(function()
-                    remote:InvokeServer("Inventory", "Equip", "tower", towerName)
-                end)
+                -- Ensuite l'Equip réel
+                pcall(function() remote:InvokeServer("Inventory", "Equip", "tower", towerName) end)
                 
-                print("✅ [ADS] Tour équipée : " .. towerName)
-                task.wait(0.3)
+                print("✅ [ADS] COMMANDE ENVOYÉE : Equip " .. towerName)
+                task.wait(0.3) -- Pause pour éviter le rate limit
             end
         end
     end
-    warn("✅ [ADS] Fonction TDS.Equip a été ÉCRASÉE avec succès.")
+    
+    warn("[ADS] 2. Fonction TDS.Equip a été REMPLACÉE (Prêt pour la stratégie).")
 
-    -- 4. Gatling Gun (si supporté)
+    -- 3. Notification Visuelle (peut être async, pas grave)
+    task.spawn(function()
+        pcall(function()
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "ADS Bypass",
+                Text = "✅ Script chargé & Equip prêt !",
+                Duration = 5,
+            })
+        end)
+    end)
+
+    -- 4. Gatling Gun (peut être async)
     TDS.AutoGatling = function()
         if not hookmetamethod and not getgenv().hookmetamethod then return end
         task.spawn(function()
