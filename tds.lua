@@ -827,14 +827,12 @@ local function UpdatePathVisuals()
 end
 
 function TDS:Addons()
-    -- 1. Nettoyage : On force directement le mode Bypass (plus d'URL, plus de check)
-    warn("⚠️ [ADS] Mode Bypass Forcé Activé.")
+    -- 1. On force le mode Bypass (plus besoin de clé)
+    warn("⚠️ [ADS] Mode Bypass Activé : Gestion automatique de l'inventaire.")
 
-    -- 2. On injecte les variables nécessaires pour que le script ne plante pas
     if not TDS.MultiMode then TDS.MultiMode = true end
     if not TDS.Multiplayer then TDS.Multiplayer = { Active = true } end
     
-    -- 3. Configuration du Gatling Gun (au cas où tu t'en sers)
     if not TDS.GatlingConfig then
         TDS.GatlingConfig = {
             Enabled = true,
@@ -844,43 +842,80 @@ function TDS:Addons()
         }
     end
 
-    -- 4. Correction de la fonction EQUIP
-    -- Elle force l'équipement en suivant tes logs (Inventory -> Equip -> tower -> Nom)
+    -- 2. La fonction EQUIP "Intelligente"
     if not TDS.Equip then
         TDS.Equip = function(...)
             local TowersToEquip = {...}
-            
-            -- Gestion si l'argument est une table (ex: TDS:Equip({"Scout", "Sniper"}))
             if type(TowersToEquip[1]) == "table" then
                 TowersToEquip = TowersToEquip[1]
             end
 
             local remote = game:GetService("ReplicatedStorage"):WaitForChild("RemoteFunction")
+            local HttpService = game:GetService("HttpService")
+            local LocalPlayer = game:GetService("Players").LocalPlayer
+
+            -- Helper pour voir ce qu'on a déjà équipé
+            local function GetCurrentLoadout()
+                local equipped = {}
+                local replicators = game:GetService("ReplicatedStorage"):WaitForChild("StateReplicators")
+                for _, folder in ipairs(replicators:GetChildren()) do
+                    if folder.Name == "PlayerReplicator" and folder:GetAttribute("UserId") == LocalPlayer.UserId then
+                        local eqAttr = folder:GetAttribute("EquippedTowers")
+                        if type(eqAttr) == "string" then
+                            local clean = eqAttr:match("%[.*%]")
+                            local ok, data = pcall(function() return HttpService:JSONDecode(clean) end)
+                            if ok and type(data) == "table" then
+                                for _, t in ipairs(data) do
+                                    if t and t ~= "None" then table.insert(equipped, t) end
+                                end
+                            end
+                        end
+                    end
+                end
+                return equipped
+            end
 
             for _, towerName in ipairs(TowersToEquip) do
                 if towerName and type(towerName) == "string" and towerName ~= "" then
-                    -- ÉTAPE A : On essaie de déséquiper d'abord (Refresh du slot)
-                    -- Cela correspond à ton log "Unequip"
+                    local currentLoadout = GetCurrentLoadout()
+                    
+                    -- Vérif si on l'a déjà
+                    local alreadyHasIt = false
+                    for _, t in ipairs(currentLoadout) do
+                        if t == towerName then alreadyHasIt = true break end
+                    end
+
+                    -- Si on ne l'a pas et qu'on est plein (5 tours)
+                    if not alreadyHasIt and #currentLoadout >= 5 then
+                        -- On vire la 1ère tour de la liste pour faire de la place
+                        local towerToRemove = currentLoadout[1]
+                        if towerToRemove then
+                            pcall(function()
+                                remote:InvokeServer("Inventory", "Unequip", "tower", towerToRemove)
+                            end)
+                            warn("♻️ [ADS] Slot plein : " .. tostring(towerToRemove) .. " retiré pour " .. towerName)
+                            task.wait(0.3)
+                        end
+                    end
+
+                    -- Procédure standard : Unequip (pour être sûr) puis Equip
                     pcall(function()
                         remote:InvokeServer("Inventory", "Unequip", "tower", towerName)
                     end)
-                    
-                    task.wait(0.1) -- Petite pause technique
+                    task.wait(0.1)
 
-                    -- ÉTAPE B : On équipe la tour
-                    -- Cela correspond à ton log "Equip"
                     pcall(function()
                         remote:InvokeServer("Inventory", "Equip", "tower", towerName)
                     end)
                     
-                    print("✅ [ADS] Tentative d'équipement : " .. towerName)
-                    task.wait(0.25) -- Pause pour ne pas spammer le serveur
+                    print("✅ [ADS] Equipé : " .. towerName)
+                    task.wait(0.3)
                 end
             end
         end
     end
 
-    -- 5. Injection du code Gatling Gun (Automatique)
+    -- 3. Injection Gatling Gun
     TDS.AutoGatling = function()
         if not hookmetamethod and not getgenv().hookmetamethod then return end
 
@@ -908,7 +943,6 @@ function TDS:Addons()
         end)
     end
     
-    -- Active le Gatling si nécessaire
     if TDS.GatlingConfig.Enabled then
         TDS:AutoGatling()
     end
