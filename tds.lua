@@ -827,14 +827,12 @@ local function UpdatePathVisuals()
 end
 
 function TDS:Addons()
-    -- Message de confirmation dans la console (Appuie sur F9 pour voir)
-    warn("[ADS] DÉMARRAGE: TDS:Addons() a été appelé !")
+    warn("[ADS] DÉMARRAGE: TDS:Addons() appelé. Forçage du Premium...")
 
-    -- 1. Configuration des variables vitales (Anti-Crash)
+    -- 1. Anti-Crash Variables
     if not TDS.MultiMode then TDS.MultiMode = true end
     if not TDS.Multiplayer then TDS.Multiplayer = { Active = true } end
     
-    -- Config Gatling
     if not TDS.GatlingConfig then
         TDS.GatlingConfig = {
             Enabled = true,
@@ -844,34 +842,19 @@ function TDS:Addons()
         }
     end
 
-    -- 2. Système de Notification "Force" (Répète jusqu'à ce que ça marche)
+    -- 2. Notification Visuelle
     task.spawn(function()
-        local StarterGui = game:GetService("StarterGui")
-        local notifSent = false
-        local attempts = 0
-        
-        while not notifSent and attempts < 10 do
-            local success, err = pcall(function()
-                StarterGui:SetCore("SendNotification", {
-                    Title = "ADS Bypass Actif",
-                    Text = "✅ Premium débloqué (Equip Auto + Gatling)",
-                    Duration = 8,
-                    Icon = "rbxassetid://10657199464"
-                })
-            end)
-            
-            if success then
-                notifSent = true
-                warn("[ADS] Notification envoyée avec succès.")
-            else
-                attempts = attempts + 1
-                task.wait(1) -- On attend un peu que le jeu charge
-            end
-        end
+        pcall(function()
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "ADS Bypass",
+                Text = "✅ Fonction Equip forcée !",
+                Duration = 5,
+            })
+        end)
     end)
 
-    -- 3. Fonction EQUIP "Intelligente" (Gestion Inventaire Plein)
-    -- On force la redéfinition même si elle existe déjà pour être sûr d'avoir la bonne version
+    -- 3. FORÇAGE DE LA FONCTION EQUIP (J'ai enlevé le "if not TDS.Equip")
+    -- On écrase l'ancienne fonction vide par celle-ci qui fonctionne.
     TDS.Equip = function(...)
         local TowersToEquip = {...}
         if type(TowersToEquip[1]) == "table" then
@@ -879,10 +862,9 @@ function TDS:Addons()
         end
 
         local remote = game:GetService("ReplicatedStorage"):WaitForChild("RemoteFunction")
-        local HttpService = game:GetService("HttpService")
         local LocalPlayer = game:GetService("Players").LocalPlayer
 
-        -- Fonction pour lire l'inventaire actuel
+        -- Fonction interne pour lire l'inventaire
         local function GetCurrentLoadout()
             local equipped = {}
             local replicators = game:GetService("ReplicatedStorage"):WaitForChild("StateReplicators")
@@ -891,7 +873,7 @@ function TDS:Addons()
                     local eqAttr = folder:GetAttribute("EquippedTowers")
                     if type(eqAttr) == "string" then
                         local clean = eqAttr:match("%[.*%]")
-                        local ok, data = pcall(function() return HttpService:JSONDecode(clean) end)
+                        local ok, data = pcall(function() return game:GetService("HttpService"):JSONDecode(clean) end)
                         if ok and type(data) == "table" then
                             for _, t in ipairs(data) do
                                 if t and t ~= "None" then table.insert(equipped, t) end
@@ -905,26 +887,26 @@ function TDS:Addons()
 
         for _, towerName in ipairs(TowersToEquip) do
             if towerName and type(towerName) == "string" and towerName ~= "" then
-                -- A. Vérification de place
+                -- A. On vérifie si on a de la place
                 local currentLoadout = GetCurrentLoadout()
                 local alreadyHasIt = false
                 for _, t in ipairs(currentLoadout) do
                     if t == towerName then alreadyHasIt = true break end
                 end
 
-                -- B. Si pas de place (5 tours), on retire la première
+                -- B. LOGIQUE "LOADOUT BYPASS" : Si plein (5 tours), on retire la première
                 if not alreadyHasIt and #currentLoadout >= 5 then
                     local towerToRemove = currentLoadout[1]
                     if towerToRemove then
                         pcall(function()
                             remote:InvokeServer("Inventory", "Unequip", "tower", towerToRemove)
                         end)
-                        warn("♻️ [ADS] Place libérée : " .. tostring(towerToRemove) .. " retiré.")
-                        task.wait(0.2)
+                        warn("♻️ [ADS] Place libérée : " .. tostring(towerToRemove) .. " retiré pour " .. towerName)
+                        task.wait(0.25)
                     end
                 end
 
-                -- C. On déséquipe (au cas où) puis on équipe la cible
+                -- C. On force le déséquipement (refresh) puis l'équipement
                 pcall(function()
                     remote:InvokeServer("Inventory", "Unequip", "tower", towerName)
                 end)
@@ -939,41 +921,30 @@ function TDS:Addons()
             end
         end
     end
-    warn("[ADS] Fonction TDS:Equip chargée.")
+    warn("✅ [ADS] Fonction TDS.Equip a été ÉCRASÉE avec succès.")
 
-    -- 4. Injection Gatling Gun (Séparée pour éviter les crashs)
+    -- 4. Gatling Gun (si supporté)
     TDS.AutoGatling = function()
-        if not hookmetamethod and not getgenv().hookmetamethod then 
-            warn("⚠️ [ADS] Ton exécuteur ne supporte pas 'hookmetamethod' (Gatling désactivé).")
-            return 
-        end
-
+        if not hookmetamethod and not getgenv().hookmetamethod then return end
         task.spawn(function()
-            local success, err = pcall(function()
+            pcall(function()
                 local NetworkModule = game:GetService("ReplicatedStorage"):WaitForChild("Resources"):WaitForChild("Universal"):WaitForChild("NewNetwork")
                 local ggchannel = require(NetworkModule).Channel("GatlingGun")
                 local TowerContent = game:GetService("ReplicatedStorage"):WaitForChild("Content"):WaitForChild("Tower")
                 
                 if TowerContent:FindFirstChild("Gatling Gun") then
                     local gganim = require(TowerContent["Gatling Gun"].Animator)
-                    
                     gganim._fireGun = function(self)
                         local CamController = require(TowerContent["Gatling Gun"].Animator.CameraController)
                         local pos = CamController.result and CamController.result.Position or CamController.position
-                        
                         local mult = TDS.GatlingConfig.Multiply or 10
                         for i = 1, mult do
                             ggchannel:fireServer("Fire", pos, workspace:GetAttribute("Sync"), workspace:GetServerTimeNow())
                         end
-                        
-                        local cd = TDS.GatlingConfig.Cooldown or 0.05
-                        self:Wait(cd)
+                        self:Wait(TDS.GatlingConfig.Cooldown or 0.05)
                     end
-                    warn("[ADS] Gatling Gun activé !")
                 end
             end)
-            
-            if not success then warn("❌ Erreur Gatling: " .. tostring(err)) end
         end)
     end
     
